@@ -258,10 +258,12 @@ class MixtralBlockSparseTop2MLP_HQQ(nn.Module):
 class MixtralBlockSparseTop2MLP(nn.Module):
     def __init__(self, config: MixtralConfig):
         super().__init__()
-        
-        self.w1 = nn.Linear(config.hidden_size, config.intermediate_size)
-        self.w2 = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.w3 = nn.Linear(config.hidden_size, config.intermediate_size)
+        self.ffn_dim = config.intermediate_size
+        self.hidden_dim = config.hidden_size
+
+        self.w1 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False, dtype=torch.float16)
+        self.w2 = nn.Linear(self.ffn_dim, self.hidden_dim, bias=False, dtype=torch.float16)
+        self.w3 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False, dtype=torch.float16)
 
         self.act_fn = ACT2FN[config.hidden_act]
 

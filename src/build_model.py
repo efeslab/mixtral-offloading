@@ -11,6 +11,7 @@ from transformers import AutoConfig
 from transformers.models.mixtral import MixtralForCausalLM, MixtralConfig
 
 from safetensors.torch import load_file
+from safetensors import safe_open
 
 from torch import nn
 from tqdm.auto import trange
@@ -127,7 +128,7 @@ def get_default_ffn_quant_config(ffn_dim: int = 14336, hidden_dim: int = 4096):
 
 def make_empty_expert(
     model_config: MixtralConfig, quant_config: QuantConfig
-) -> MixtralBlockSparseTop2MLP_HQQ:
+) -> MixtralBlockSparseTop2MLP_HQQ | MixtralBlockSparseTop2MLP:
     if quant_config is None:
         return MixtralBlockSparseTop2MLP(
             model_config
@@ -158,13 +159,20 @@ def make_and_load_expert_wrapper(
         if quant_config is None:
             module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w1.weight"
             state_fpath = json.load(f)["weight_map"][module_idx]
+            # we need only the expert 0 part from consolidated weight
+            with safe_open(os.path.join(states_dir, state_fpath), framework="pt") as f:
+                state_dict = {}
+                base = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
+                for i in range(1, 4):
+                    state_dict[f"w{i}.weight"] = f.get_tensor(f"{base}.w{i}.weight").to(device)
+                expert = make_empty_expert(config, quant_config)
+                expert.load_state_dict(state_dict, strict=True)
         else:
             module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
             state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
-
-    state_dict = load_file(os.path.join(states_dir, state_fpath), device=str(device))
-    expert = make_empty_expert(config, quant_config)
-    expert.load_state_dict(state_dict, strict=True)
+            state_dict = load_file(os.path.join(states_dir, state_fpath), device=str(device))
+            expert = make_empty_expert(config, quant_config)
+            expert.load_state_dict(state_dict, strict=True)
 
     quantized = True if quant_config is not None else False
     return MixtralExpertWrapper(expert, device, quantized)
@@ -176,10 +184,15 @@ def load_00_expert_state_dict(states_dir: str, device: torch.device, quant_confi
         if quant_config is None:
             module_idx = f"model.layers.0.block_sparse_moe.experts.0.w1.weight"
             state_fpath = json.load(f)["weight_map"][module_idx]
+            with safe_open(os.path.join(states_dir, state_fpath), framework="pt") as f:
+                state_dict = {}
+                for i in range(1, 4):
+                    state_dict[f"w{i}.weight"] = f.get_tensor(f"model.layers.0.block_sparse_moe.experts.0.w{i}.weight").to(device)
+                return state_dict
         else:
             module_idx = f"model.layers.0.block_sparse_moe.experts.0"
             state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
-    return load_file(os.path.join(states_dir, state_fpath), device=str(device))
+            return load_file(os.path.join(states_dir, state_fpath), device=str(device))
 
 
 def build_model(
@@ -195,8 +208,9 @@ def build_model(
     def _make_module():
         config = AutoConfig.from_pretrained(model_name)
         expert = make_empty_expert(config, quant_config)
-        expert.load_state_dict(state_dict_00)
-        return MixtralExpertWrapper(expert, device=device)
+        expert.load_state_dict(state_dict_00, strict=False)
+        quantized = True if quant_config is not None else False
+        return MixtralExpertWrapper(expert, device=device, quantized=quantized)
 
     with device, with_default_dtype(torch.float16):
         model = MixtralForCausalLM(
@@ -220,7 +234,7 @@ def build_model(
             state_path,
             weight_map["model.embed_tokens.weight"],
         )
-        model.load_state_dict(load_file(trunk_state_path, device=str(device)), strict=True)
+        model.load_state_dict(load_file(trunk_state_path, device=str(device)), strict=False)
 
     expert_cache = ExpertCache(
         make_module=_make_module,

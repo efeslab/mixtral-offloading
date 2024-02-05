@@ -34,8 +34,6 @@ class MixtralExpertWrapper(nn.Module):
     def forward(self, *args, **kwargs):
         return self.expert_module(*args, **kwargs)
     
-    
-    @staticmethod
     def replace_layer_storage(
         self,
         layer: tp.Any,
@@ -93,7 +91,7 @@ class MixtralExpertWrapper(nn.Module):
                 patched.meta = states["meta"]
                 patched.bias = states["bias"]
             else:
-                patched.weight = states["weight"]
+                patched.weight = torch.nn.Parameter(states["weight"])
             setattr(layer, layer_id, patched)
 
         return layer, storage
