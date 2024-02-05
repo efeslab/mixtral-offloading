@@ -156,17 +156,18 @@ def make_and_load_expert_wrapper(
 
     index_path = os.path.join(states_dir, "model.safetensors.index.json")
     with open(index_path) as f:
+        json_config = json.load(f)
         if quant_config is None:
-            module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w1.weight"
-            state_fpath = json.load(f)["weight_map"][module_idx]
-            # we need only the expert 0 part from consolidated weight
-            with safe_open(os.path.join(states_dir, state_fpath), framework="pt") as f:
-                state_dict = {}
-                base = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
-                for i in range(1, 4):
-                    state_dict[f"w{i}.weight"] = f.get_tensor(f"{base}.w{i}.weight").to(device)
-                expert = make_empty_expert(config, quant_config)
-                expert.load_state_dict(state_dict, strict=True)
+            state_dict = {}
+            for i in range(1, 4):
+                module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w{i}.weight"
+                state_fpath = json_config["weight_map"][module_idx]
+                # we need only the expert 0 part from consolidated weight
+                with safe_open(os.path.join(states_dir, state_fpath), framework="pt") as f_weight:
+                    base = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
+                    state_dict[f"w{i}.weight"] = f_weight.get_tensor(f"{base}.w{i}.weight")
+            expert = make_empty_expert(config, quant_config)
+            expert.load_state_dict(state_dict, strict=True)
         else:
             module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
             state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
@@ -187,7 +188,7 @@ def load_00_expert_state_dict(states_dir: str, device: torch.device, quant_confi
             with safe_open(os.path.join(states_dir, state_fpath), framework="pt") as f:
                 state_dict = {}
                 for i in range(1, 4):
-                    state_dict[f"w{i}.weight"] = f.get_tensor(f"model.layers.0.block_sparse_moe.experts.0.w{i}.weight").to(device)
+                    state_dict[f"w{i}.weight"] = f.get_tensor(f"model.layers.0.block_sparse_moe.experts.0.w{i}.weight")
                 return state_dict
         else:
             module_idx = f"model.layers.0.block_sparse_moe.experts.0"

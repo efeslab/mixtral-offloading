@@ -64,7 +64,7 @@ class MixtralExpertWrapper(nn.Module):
                 continue
             storage_size += x.nbytes
             offsets.append(storage_size)
-
+        print(storage_size)
         storage = torch.UntypedStorage(storage_size, device=device) 
 
         i = 0
