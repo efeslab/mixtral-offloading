@@ -190,7 +190,7 @@ def build_model(
 ):
     model_name = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
-    state_dict_00 = load_00_expert_state_dict(state_path, device)
+    state_dict_00 = load_00_expert_state_dict(state_path, device, quant_config)
 
     def _make_module():
         config = AutoConfig.from_pretrained(model_name)
