@@ -21,7 +21,8 @@ from .expert_cache import ExpertCache
 from .expert_wrapper import MixtralExpertWrapper
 from .custom_layers import (
     HQQLinearTritonSavable,
-    MixtralBLockSparseTop2MLP_HQQ,
+    MixtralBlockSparseTop2MLP_HQQ,
+    MixtralBlockSparseTop2MLP,
     SparseMoeWrapper,
 )
 from .utils import with_default_dtype
@@ -55,9 +56,13 @@ class QuantConfig:
 def replace_attn_layers(
     model: MixtralForCausalLM,
     config: MixtralConfig,
-    quant_config: QuantConfig,
+    quant_config: QuantConfig | None,
     device: torch.device,
 ) -> None:
+    
+    if quant_config is None:
+        return
+    
     attn_quant_config = quant_config.attn_config
 
     hidden_size = config.hidden_size
@@ -122,11 +127,16 @@ def get_default_ffn_quant_config(ffn_dim: int = 14336, hidden_dim: int = 4096):
 
 def make_empty_expert(
     model_config: MixtralConfig, quant_config: QuantConfig
-) -> MixtralBLockSparseTop2MLP_HQQ:
+) -> MixtralBlockSparseTop2MLP_HQQ:
+    if quant_config is None:
+        return MixtralBlockSparseTop2MLP(
+            model_config
+        )
+
     meta1, meta2 = quant_config.get_ffn_metas(
         model_config.hidden_size, model_config.intermediate_size
     )
-    return MixtralBLockSparseTop2MLP_HQQ(
+    return MixtralBlockSparseTop2MLP_HQQ(
         model_config,
         quant_config.ffn_config,
         meta1,
@@ -136,7 +146,7 @@ def make_empty_expert(
 
 def make_and_load_expert_wrapper(
     config: MixtralConfig,
-    quant_config: QuantConfig,
+    quant_config: QuantConfig | None,
     states_dir: str,
     expert_uid: tuple[int, int],
     device: torch.device,
@@ -145,8 +155,12 @@ def make_and_load_expert_wrapper(
 
     index_path = os.path.join(states_dir, "model.safetensors.index.json")
     with open(index_path) as f:
-        module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
-        state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
+        if quant_config is None:
+            module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}.w1.weight"
+            state_fpath = json.load(f)["weight_map"][module_idx]
+        else:
+            module_idx = f"model.layers.{layer_idx}.block_sparse_moe.experts.{expert_idx}"
+            state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
 
     state_dict = load_file(os.path.join(states_dir, state_fpath), device=str(device))
     expert = make_empty_expert(config, quant_config)
@@ -155,17 +169,21 @@ def make_and_load_expert_wrapper(
     return MixtralExpertWrapper(expert, device)
 
 
-def load_00_expert_state_dict(states_dir: str, device: torch.device):
+def load_00_expert_state_dict(states_dir: str, device: torch.device, quant_config: QuantConfig | None):
     index_path = os.path.join(states_dir, "model.safetensors.index.json")
     with open(index_path) as f:
-        module_idx = f"model.layers.0.block_sparse_moe.experts.0"
-        state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
+        if quant_config is None:
+            module_idx = f"model.layers.0.block_sparse_moe.experts.0.w1.weight"
+            state_fpath = json.load(f)["weight_map"][module_idx]
+        else:
+            module_idx = f"model.layers.0.block_sparse_moe.experts.0"
+            state_fpath = json.load(f)["weight_map"][f"{module_idx}.w1.W_q"]
     return load_file(os.path.join(states_dir, state_fpath), device=str(device))
 
 
 def build_model(
     device: torch.device,
-    quant_config: QuantConfig,
+    quant_config: QuantConfig | None,
     offload_config: OffloadConfig,
     state_path: str,
 ):

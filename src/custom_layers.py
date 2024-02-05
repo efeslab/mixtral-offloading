@@ -240,7 +240,7 @@ class HQQLinearTritonSavable(HQQLinear):
         nn.Module.load_state_dict(self, *args, **kwargs)
 
 
-class MixtralBLockSparseTop2MLP_HQQ(nn.Module):
+class MixtralBlockSparseTop2MLP_HQQ(nn.Module):
     def __init__(self, config: MixtralConfig, quant_config: Dict[str, Any], meta1, meta2):
         super().__init__()
         
@@ -255,6 +255,20 @@ class MixtralBLockSparseTop2MLP_HQQ(nn.Module):
         current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
 
+class MixtralBlockSparseTop2MLP(nn.Module):
+    def __init__(self, config: MixtralConfig):
+        super().__init__()
+        
+        self.w1 = nn.Linear(config.hidden_size, config.intermediate_size)
+        self.w2 = nn.Linear(config.intermediate_size, config.hidden_size)
+        self.w3 = nn.Linear(config.hidden_size, config.intermediate_size)
+
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, hidden_states):
+        current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(hidden_states)
+        current_hidden_states = self.w2(current_hidden_states)
+        return current_hidden_states
 
 class SparseMoeWrapper(nn.Module):
     def __init__(self, config, layer_id, gate, expert_cache):
