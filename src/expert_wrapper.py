@@ -11,9 +11,11 @@ class MixtralExpertWrapper(nn.Module):
         self,
         expert_module: tp.Any,
         device: torch.device,
+        quantized: bool = True,
     ):
         super().__init__()
         
+        self.quantized = quantized
         expert_module, self.storage = self.replace_layer_storage(expert_module, device)
         self.expert_module = lambda *args, **kwargs: expert_module(*args, **kwargs)
         
@@ -35,17 +37,26 @@ class MixtralExpertWrapper(nn.Module):
     
     @staticmethod
     def replace_layer_storage(
+        self,
         layer: tp.Any,
         device: torch.device,
     ):
-        state_dict = {
-            f"w{i}": {
-                "W_q": getattr(layer, f"w{i}").W_q,
-                "meta": getattr(layer, f"w{i}").meta,
-                "bias": getattr(layer, f"w{i}").bias,
+        if self.quantized:
+            state_dict = {
+                f"w{i}": {
+                    "W_q": getattr(layer, f"w{i}").W_q,
+                    "meta": getattr(layer, f"w{i}").meta,
+                    "bias": getattr(layer, f"w{i}").bias,
+                }
+                for i in range(1, 4)
             }
-            for i in range(1, 4)
-        }
+        else:
+            state_dict = {
+                f"w{i}": {
+                    "weight": getattr(layer, f"w{i}").weight
+                }
+                for i in range(1, 4)
+            }
 
         storage_size = 0
         offsets = [0]
@@ -77,9 +88,12 @@ class MixtralExpertWrapper(nn.Module):
 
         for layer_id, states in state_dict.items():
             patched = getattr(layer, layer_id)
-            patched.W_q = states["W_q"]
-            patched.meta = states["meta"]
-            patched.bias = states["bias"]
+            if self.quantized:
+                patched.W_q = states["W_q"]
+                patched.meta = states["meta"]
+                patched.bias = states["bias"]
+            else:
+                patched.weight = states["weight"]
             setattr(layer, layer_id, patched)
 
         return layer, storage

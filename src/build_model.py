@@ -166,7 +166,8 @@ def make_and_load_expert_wrapper(
     expert = make_empty_expert(config, quant_config)
     expert.load_state_dict(state_dict, strict=True)
 
-    return MixtralExpertWrapper(expert, device)
+    quantized = True if quant_config is not None else False
+    return MixtralExpertWrapper(expert, device, quantized)
 
 
 def load_00_expert_state_dict(states_dir: str, device: torch.device, quant_config: QuantConfig | None):
@@ -208,16 +209,18 @@ def build_model(
         )
 
     model_config = AutoConfig.from_pretrained(model_name)
-    replace_attn_layers(model, model_config, quant_config, device)
-    state_index_path = os.path.join(state_path, "model.safetensors.index.json")
-    with open(state_index_path) as f:
-        weight_map = json.load(f)["weight_map"]
+    
+    if quant_config is not None:
+        replace_attn_layers(model, model_config, quant_config, device)
+        state_index_path = os.path.join(state_path, "model.safetensors.index.json")
+        with open(state_index_path) as f:
+            weight_map = json.load(f)["weight_map"]
 
-    trunk_state_path = os.path.join(
-        state_path,
-        weight_map["model.embed_tokens.weight"],
-    )
-    model.load_state_dict(load_file(trunk_state_path, device=str(device)), strict=True)
+        trunk_state_path = os.path.join(
+            state_path,
+            weight_map["model.embed_tokens.weight"],
+        )
+        model.load_state_dict(load_file(trunk_state_path, device=str(device)), strict=True)
 
     expert_cache = ExpertCache(
         make_module=_make_module,
