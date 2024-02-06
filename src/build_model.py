@@ -24,7 +24,7 @@ from .custom_layers import (
     HQQLinearTritonSavable,
     MixtralBlockSparseTop2MLP_HQQ,
     MixtralBlockSparseTop2MLP,
-    SparseMoeWrapper,
+    SparseMoEWrapper,
 )
 from .utils import with_default_dtype
 
@@ -61,6 +61,15 @@ def replace_attn_layers(
     device: torch.device,
 ) -> None:
     
+    for layer in model.model.layers:
+        layer.block_sparse_moe.gate = nn.Linear(
+            config.hidden_size,
+            config.num_local_experts,
+            dtype=torch.float16,
+            device=device,
+            bias=False,
+        )
+
     if quant_config is None:
         return
     
@@ -89,13 +98,6 @@ def replace_attn_layers(
         return layer
 
     for layer in model.model.layers:
-        layer.block_sparse_moe.gate = nn.Linear(
-            config.hidden_size,
-            config.num_local_experts,
-            dtype=torch.float16,
-            device=device,
-            bias=False,
-        )
 
         layer.self_attn.q_proj = patch_fct_hqq(
             (hidden_size, num_heads * head_dim), attn_quant_config
@@ -225,8 +227,9 @@ def build_model(
 
     model_config = AutoConfig.from_pretrained(model_name)
     
+    replace_attn_layers(model, model_config, quant_config, device)
+    
     if quant_config is not None:
-        replace_attn_layers(model, model_config, quant_config, device)
         state_index_path = os.path.join(state_path, "model.safetensors.index.json")
         with open(state_index_path) as f:
             weight_map = json.load(f)["weight_map"]
@@ -245,7 +248,7 @@ def build_model(
     )
     for layer_idx in trange(model_config.num_hidden_layers, desc="Loading experts"):
         curr_layer = model.model.layers[layer_idx]
-        curr_layer.block_sparse_moe = SparseMoeWrapper(
+        curr_layer.block_sparse_moe = SparseMoEWrapper(
             model_config,
             layer_idx,
             curr_layer.block_sparse_moe.gate,
@@ -255,12 +258,13 @@ def build_model(
         for expert_idx in range(model_config.num_local_experts):
             do_offload = expert_idx < offload_config.offload_per_layer
 
+            # we only need to create experts on cpu storage, whether they will be on gpu is decided by the expert_cache
             expert_wrapper = make_and_load_expert_wrapper(
                 config=model_config,
                 quant_config=quant_config,
                 states_dir=state_path,
                 expert_uid=(layer_idx, expert_idx),
-                device=device,
+                device=torch.device("cpu"),
             )
 
             expert_cache.add_expert(

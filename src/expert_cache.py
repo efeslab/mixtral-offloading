@@ -70,12 +70,16 @@ class ExpertCache:
         self.main_modules = []
         for i in range(main_size):
             self.main_modules.append(self._check_module(make_module()))
-            print(f"loading main module {i}...")
+            print(f"ExpertCache: loading main module {i} on GPU...")
         self.main_infos: List[Optional[ExpertInfo]] = [None for _ in range(main_size)]
 
         assert self.module_size is not None
-        self.offloaded_storages = [
-            torch.UntypedStorage(self.module_size).pin_memory(self.device) for _ in range(offload_size)]
+        # self.offloaded_storages = [
+        #     torch.UntypedStorage(self.module_size).pin_memory(self.device) for _ in range(offload_size)]
+        self.offloaded_storages = []
+        for i in range(offload_size):
+            self.offloaded_storages.append(torch.UntypedStorage(self.module_size).pin_memory(self.device))
+            print(f"ExpertCache: loading offloaded storage {i} on CPU...")
         self.offloaded_infos: List[Optional[ExpertInfo]] = [None for _ in range(offload_size)]
 
         # temporary storage to shave off latency

@@ -272,7 +272,7 @@ class MixtralBlockSparseTop2MLP(nn.Module):
         current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
 
-class SparseMoeWrapper(nn.Module):
+class SparseMoEWrapper(nn.Module):
     def __init__(self, config, layer_id, gate, expert_cache):
         super().__init__()
 
