@@ -113,7 +113,7 @@ for input_token, output_token in zip([16, 32, 64, 128], [16, 32, 64, 128, 256, 5
         start_time = time.time()
         result = model.generate(
             input_ids=input_ids[:, :input_token],
-            max_length=input_token + output_token,
+            max_new_tokens=output_token,
             do_sample=True,
             temperature=0.9,
             top_p=0.9,
@@ -123,8 +123,8 @@ for input_token, output_token in zip([16, 32, 64, 128], [16, 32, 64, 128, 256, 5
         end_time = time.time()
         time_sum += end_time - start_time
         # count the number of tokens in the output
-        num_tokens += result["sequences"].shape[1] - input_ids.shape[1]
-        print(f'output text: {tokenizer.decode(result["sequences"][0, input_token:])}')
+        num_tokens += result["sequences"].shape[1]
+        print(f'output text: {tokenizer.decode(result["sequences"][0])}')
         
         
     print(
