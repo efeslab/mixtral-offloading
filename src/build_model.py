@@ -238,7 +238,21 @@ def build_model(
             state_path,
             weight_map["model.embed_tokens.weight"],
         )
+        # this is possible because all non-expert weights are in this one file
         model.load_state_dict(load_file(trunk_state_path, device=str(device)), strict=False)
+    else:
+        # glob all safetensors files and load them
+        for root, dirs, files in os.walk(state_path):
+            state_dict = {}
+            for file in files:
+                if file.endswith(".safetensors"):
+                    state_dict.update(load_file(os.path.join(root, file)))
+            # print(f"state_dict keys: {sorted(state_dict.keys())}")
+            print("state_dict keys")
+            for key in sorted(state_dict.keys()):
+                print(key)
+            model.load_state_dict(state_dict, strict=False)
+    
 
     expert_cache = ExpertCache(
         make_module=_make_module,
